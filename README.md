@@ -394,4 +394,5 @@ harms/
 ---
 
 ## License
-MIT
+Just a college project
+
