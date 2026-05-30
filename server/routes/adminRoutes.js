@@ -1,6 +1,17 @@
 const express = require('express');
 const router = express.Router();
-const { getUsers, toggleUserStatus, getDoctors, createDoctor, deleteDoctor, getNurses, getAnalytics } = require('../controllers/adminController');
+const {
+  getUsers,
+  toggleUserStatus,
+  getPendingUsers,
+  approvePendingUser,
+  rejectPendingUser,
+  getDoctors,
+  createDoctor,
+  deleteDoctor,
+  getNurses,
+  getAnalytics,
+} = require('../controllers/adminController');
 const { authenticate, authorize } = require('../middleware/authMiddleware');
 const notificationService = require('../services/notificationService');
 const { successResponse, errorResponse } = require('../utils/response');
@@ -9,6 +20,9 @@ const isAdmin = [authenticate, authorize('admin')];
 
 router.get('/users', ...isAdmin, getUsers);
 router.patch('/users/:id/toggle', ...isAdmin, toggleUserStatus);
+router.get('/pending-users', ...isAdmin, getPendingUsers);
+router.patch('/pending-users/:id/approve', ...isAdmin, approvePendingUser);
+router.patch('/pending-users/:id/reject', ...isAdmin, rejectPendingUser);
 router.get('/doctors', ...isAdmin, getDoctors);
 router.post('/doctors', ...isAdmin, createDoctor);
 router.delete('/doctors/:id', ...isAdmin, deleteDoctor);

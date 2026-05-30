@@ -1,6 +1,4 @@
 const User = require('../models/User');
-const Doctor = require('../models/Doctor');
-const Nurse = require('../models/Nurse');
 const { generateAccessToken, generateRefreshToken, verifyRefreshToken } = require('../utils/jwt');
 const { successResponse, errorResponse } = require('../utils/response');
 const AuditLog = require('../models/AuditLog');
@@ -8,18 +6,51 @@ const AuditLog = require('../models/AuditLog');
 // POST /api/auth/register
 const register = async (req, res) => {
   try {
-    const { name, email, password, role = 'patient', specialization, department } = req.body;
+    const {
+      name,
+      email,
+      password,
+      role = 'patient',
+      specialization,
+      department,
+      qualifications,
+      experience,
+      consultationFee,
+      maxLoad,
+    } = req.body;
 
     const existing = await User.findOne({ email });
     if (existing) return errorResponse(res, 'Email already registered', 409);
 
-    const user = await User.create({ name, email, password, role });
+    const needsApproval = role === 'doctor' || role === 'nurse';
+    const user = await User.create({
+      name,
+      email,
+      password,
+      role,
+      isActive: !needsApproval,
+      approvalStatus: needsApproval ? 'pending' : 'approved',
+      requestedProfile: needsApproval
+        ? {
+            specialization,
+            department,
+            qualifications,
+            experience,
+            consultationFee,
+            maxLoad,
+          }
+        : undefined,
+    });
 
-    // Create role-specific profile
-    if (role === 'doctor') {
-      await Doctor.create({ userId: user._id, specialization: specialization || 'General' });
-    } else if (role === 'nurse') {
-      await Nurse.create({ userId: user._id, department: department || 'General' });
+    await AuditLog.create({ userId: user._id, action: 'REGISTER', entity: 'User', entityId: user._id, ip: req.ip });
+
+    if (needsApproval) {
+      return successResponse(
+        res,
+        { user },
+        'Registration request submitted. An admin must approve your account before you can log in.',
+        201
+      );
     }
 
     const accessToken = generateAccessToken(user._id, user.role);
@@ -27,8 +58,6 @@ const register = async (req, res) => {
 
     // Store refresh token
     await User.findByIdAndUpdate(user._id, { refreshToken });
-
-    await AuditLog.create({ userId: user._id, action: 'REGISTER', entity: 'User', entityId: user._id, ip: req.ip });
 
     successResponse(res, { user, accessToken, refreshToken }, 'Registration successful', 201);
   } catch (err) {
@@ -47,6 +76,12 @@ const login = async (req, res) => {
     const isMatch = await user.comparePassword(password);
     if (!isMatch) return errorResponse(res, 'Invalid credentials', 401);
 
+    if (user.approvalStatus === 'pending') {
+      return errorResponse(res, 'Account pending admin approval', 403);
+    }
+    if (user.approvalStatus === 'rejected') {
+      return errorResponse(res, 'Account request rejected, contact admin', 403);
+    }
     if (!user.isActive) return errorResponse(res, 'Account deactivated, contact admin', 403);
 
     const accessToken = generateAccessToken(user._id, user.role);

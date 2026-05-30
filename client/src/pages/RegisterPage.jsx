@@ -18,7 +18,21 @@ export default function RegisterPage() {
   const onSubmit = async (formData) => {
     setLoading(true);
     try {
-      const user = await registerUser(formData);
+      const payload = { ...formData };
+      if (payload.role === 'doctor') {
+        payload.experience = Number(payload.experience);
+        payload.consultationFee = Number(payload.consultationFee);
+      }
+      if (payload.role === 'nurse') {
+        payload.maxLoad = Number(payload.maxLoad);
+      }
+      const user = await registerUser(payload);
+      if (user.approvalStatus === 'pending') {
+        toast.success('Request submitted. Please wait for admin approval.');
+        navigate('/login');
+        return;
+      }
+
       toast.success('Account created successfully!');
       navigate(`/${user.role}`);
     } catch (err) {
@@ -82,25 +96,95 @@ export default function RegisterPage() {
             </div>
 
             {role === 'doctor' && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Specialization</label>
-                <input
-                  {...register('specialization', { required: 'Specialization required for doctors' })}
-                  className="input"
-                  placeholder="e.g. Cardiology"
-                />
-                {errors.specialization && <p className="mt-1 text-xs text-red-600">{errors.specialization.message}</p>}
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Specialization</label>
+                  <input
+                    {...register('specialization', { required: 'Specialization required for doctors' })}
+                    className="input"
+                    placeholder="e.g. Cardiology"
+                  />
+                  {errors.specialization && <p className="mt-1 text-xs text-red-600">{errors.specialization.message}</p>}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Qualifications</label>
+                  <input
+                    {...register('qualifications')}
+                    className="input"
+                    placeholder="e.g. MBBS, MD"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Experience</label>
+                    <input
+                      {...register('experience', {
+                        required: 'Experience required',
+                        min: { value: 0, message: 'Cannot be negative' },
+                      })}
+                      type="number"
+                      min="0"
+                      className="input"
+                      placeholder="Years"
+                    />
+                    {errors.experience && <p className="mt-1 text-xs text-red-600">{errors.experience.message}</p>}
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Consultation fee</label>
+                    <input
+                      {...register('consultationFee', {
+                        required: 'Fee required',
+                        min: { value: 0, message: 'Cannot be negative' },
+                      })}
+                      type="number"
+                      min="0"
+                      className="input"
+                      placeholder="Amount"
+                    />
+                    {errors.consultationFee && <p className="mt-1 text-xs text-red-600">{errors.consultationFee.message}</p>}
+                  </div>
+                </div>
               </div>
             )}
 
             {role === 'nurse' && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Department</label>
-                <input
-                  {...register('department')}
-                  className="input"
-                  placeholder="e.g. General"
-                />
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Department</label>
+                  <input
+                    {...register('department', { required: 'Department required for nurses' })}
+                    className="input"
+                    placeholder="e.g. General"
+                  />
+                  {errors.department && <p className="mt-1 text-xs text-red-600">{errors.department.message}</p>}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Qualifications</label>
+                  <input
+                    {...register('qualifications')}
+                    className="input"
+                    placeholder="e.g. BSc Nursing, GNM"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Max daily load</label>
+                  <input
+                    {...register('maxLoad', {
+                      required: 'Max load required',
+                      min: { value: 1, message: 'Minimum 1 appointment' },
+                    })}
+                    type="number"
+                    min="1"
+                    className="input"
+                    placeholder="e.g. 8"
+                  />
+                  {errors.maxLoad && <p className="mt-1 text-xs text-red-600">{errors.maxLoad.message}</p>}
+                </div>
               </div>
             )}
 

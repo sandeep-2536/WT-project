@@ -41,6 +41,15 @@ const appointmentSchema = new mongoose.Schema(
     cancellationReason: { type: String },
     isRescheduled: { type: Boolean, default: false },
     originalAppointmentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Appointment' },
+    replacementSuggestion: {
+      doctorId: { type: mongoose.Schema.Types.ObjectId, ref: 'Doctor' },
+      date: Date,
+      time: String,
+      status: {
+        type: String,
+        enum: ['pending', 'accepted', 'declined', 'unavailable'],
+      },
+    },
   },
   { timestamps: true }
 );

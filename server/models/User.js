@@ -28,6 +28,19 @@ const userSchema = new mongoose.Schema(
       enum: ['patient', 'doctor', 'nurse', 'admin'],
       default: 'patient',
     },
+    approvalStatus: {
+      type: String,
+      enum: ['approved', 'pending', 'rejected'],
+      default: 'approved',
+    },
+    requestedProfile: {
+      specialization: { type: String, trim: true },
+      department: { type: String, trim: true },
+      qualifications: [String],
+      experience: { type: Number, min: 0 },
+      consultationFee: { type: Number, min: 0 },
+      maxLoad: { type: Number, min: 1 },
+    },
     isActive: {
       type: Boolean,
       default: true,

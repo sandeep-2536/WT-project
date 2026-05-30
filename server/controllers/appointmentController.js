@@ -64,6 +64,19 @@ const cancel = async (req, res) => {
   }
 };
 
+// PATCH /api/appointments/:id/accept-suggestion  (patient)
+const acceptSuggestion = async (req, res) => {
+  try {
+    const appointment = await appointmentService.acceptReplacementSuggestion(
+      req.params.id,
+      req.user._id
+    );
+    successResponse(res, { appointment }, 'Replacement appointment request submitted');
+  } catch (err) {
+    errorResponse(res, err.message, err.statusCode || 500);
+  }
+};
+
 // GET /api/appointments/my  (patient — their own)
 const getMyAppointments = async (req, res) => {
   try {
@@ -76,6 +89,11 @@ const getMyAppointments = async (req, res) => {
       Appointment.find(filter)
         .populate('doctorId', 'specialization qualifications')
         .populate({ path: 'doctorId', populate: { path: 'userId', select: 'name email' } })
+        .populate({
+          path: 'replacementSuggestion.doctorId',
+          select: 'specialization consultationFee',
+          populate: { path: 'userId', select: 'name email' },
+        })
         .populate('nurseId')
         .sort({ date: -1 })
         .skip(skip)
@@ -175,4 +193,14 @@ const getAllAppointments = async (req, res) => {
   }
 };
 
-module.exports = { book, approve, reject, cancel, getMyAppointments, getDoctorAppointments, getNurseAppointments, getAllAppointments };
+module.exports = {
+  book,
+  approve,
+  reject,
+  cancel,
+  acceptSuggestion,
+  getMyAppointments,
+  getDoctorAppointments,
+  getNurseAppointments,
+  getAllAppointments,
+};

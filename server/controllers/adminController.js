@@ -4,6 +4,14 @@ const Nurse = require('../models/Nurse');
 const Appointment = require('../models/Appointment');
 const { successResponse, errorResponse, paginatedResponse } = require('../utils/response');
 
+const parseList = (value) => {
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => String(item).split(',')).map((item) => item.trim()).filter(Boolean);
+  }
+  if (typeof value === 'string') return value.split(',').map((item) => item.trim()).filter(Boolean);
+  return [];
+};
+
 // GET /api/admin/users
 const getUsers = async (req, res) => {
   try {
@@ -31,6 +39,101 @@ const toggleUserStatus = async (req, res) => {
     user.isActive = !user.isActive;
     await user.save();
     successResponse(res, { user }, `User ${user.isActive ? 'activated' : 'deactivated'}`);
+  } catch (err) {
+    errorResponse(res, err.message, 500);
+  }
+};
+
+// GET /api/admin/pending-users
+const getPendingUsers = async (req, res) => {
+  try {
+    const { page = 1, limit = 20, role, search } = req.query;
+    const skip = (page - 1) * limit;
+    const filter = {
+      approvalStatus: 'pending',
+      role: { $in: ['doctor', 'nurse'] },
+    };
+    if (role) filter.role = role;
+    if (search) {
+      filter.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+      ];
+    }
+
+    const [users, total] = await Promise.all([
+      User.find(filter).skip(skip).limit(parseInt(limit)).sort({ createdAt: -1 }),
+      User.countDocuments(filter),
+    ]);
+    paginatedResponse(res, users, page, limit, total);
+  } catch (err) {
+    errorResponse(res, err.message, 500);
+  }
+};
+
+// PATCH /api/admin/pending-users/:id/approve
+const approvePendingUser = async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) return errorResponse(res, 'User not found', 404);
+    if (!['doctor', 'nurse'].includes(user.role)) {
+      return errorResponse(res, 'Only doctor and nurse requests can be approved here', 400);
+    }
+    if (user.approvalStatus !== 'pending') {
+      return errorResponse(res, 'User request is not pending', 400);
+    }
+
+    if (user.role === 'doctor') {
+      const profile = user.requestedProfile || {};
+      await Doctor.findOneAndUpdate(
+        { userId: user._id },
+        {
+          userId: user._id,
+          specialization: profile.specialization || 'General',
+          qualifications: parseList(profile.qualifications),
+          experience: profile.experience ?? 0,
+          consultationFee: profile.consultationFee ?? 0,
+        },
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+      );
+    } else {
+      const profile = user.requestedProfile || {};
+      await Nurse.findOneAndUpdate(
+        { userId: user._id },
+        {
+          userId: user._id,
+          department: profile.department || 'General',
+          qualifications: parseList(profile.qualifications),
+          maxLoad: profile.maxLoad ?? 8,
+        },
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+      );
+    }
+
+    user.approvalStatus = 'approved';
+    user.isActive = true;
+    await user.save();
+
+    successResponse(res, { user }, `${user.role} approved successfully`);
+  } catch (err) {
+    errorResponse(res, err.message, 500);
+  }
+};
+
+// PATCH /api/admin/pending-users/:id/reject
+const rejectPendingUser = async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) return errorResponse(res, 'User not found', 404);
+    if (user.approvalStatus !== 'pending') {
+      return errorResponse(res, 'User request is not pending', 400);
+    }
+
+    user.approvalStatus = 'rejected';
+    user.isActive = false;
+    await user.save();
+
+    successResponse(res, { user }, 'User request rejected');
   } catch (err) {
     errorResponse(res, err.message, 500);
   }
@@ -139,4 +242,15 @@ const getAnalytics = async (req, res) => {
   }
 };
 
-module.exports = { getUsers, toggleUserStatus, getDoctors, createDoctor, deleteDoctor, getNurses, getAnalytics };
+module.exports = {
+  getUsers,
+  toggleUserStatus,
+  getPendingUsers,
+  approvePendingUser,
+  rejectPendingUser,
+  getDoctors,
+  createDoctor,
+  deleteDoctor,
+  getNurses,
+  getAnalytics,
+};

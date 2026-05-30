@@ -12,6 +12,7 @@ export default function MyAppointments() {
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState('all');
   const [cancelTarget, setCancelTarget] = useState(null);
+  const [suggestionTarget, setSuggestionTarget] = useState(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ['my-appointments', page, statusFilter],
@@ -34,8 +35,21 @@ export default function MyAppointments() {
     onError: (err) => toast.error(err.response?.data?.message || 'Failed to cancel'),
   });
 
+  const acceptSuggestionMutation = useMutation({
+    mutationFn: (id) => appointmentAPI.acceptSuggestion(id),
+    onSuccess: () => {
+      toast.success('Replacement request submitted');
+      qc.invalidateQueries({ queryKey: ['my-appointments'] });
+      qc.invalidateQueries({ queryKey: ['patient-appointments'] });
+      setSuggestionTarget(null);
+    },
+    onError: (err) => toast.error(err.response?.data?.message || 'Failed to accept replacement'),
+  });
+
   const appointments = data?.data || [];
   const pagination = data?.pagination || {};
+  const suggestionAppointment = appointments.find((appt) => appt._id === suggestionTarget);
+  const suggestedDoctor = suggestionAppointment?.replacementSuggestion?.doctorId;
 
   return (
     <div>
@@ -64,6 +78,9 @@ export default function MyAppointments() {
             const doctorName = appt.doctorId?.userId?.name || 'Unknown';
             const nurseName = appt.nurseId?.userId?.name;
             const canCancel = ['pending', 'confirmed'].includes(appt.status);
+            const suggestion = appt.replacementSuggestion;
+            const replacementDoctor = suggestion?.doctorId;
+            const canAcceptSuggestion = appt.status === 'rejected' && suggestion?.status === 'pending' && replacementDoctor;
 
             return (
               <div key={appt._id} className="card p-5">
@@ -83,6 +100,27 @@ export default function MyAppointments() {
                     {appt.rejectionReason && (
                       <p className="mt-2 text-sm text-red-600 bg-red-50 rounded px-3 py-1.5">
                         Rejection reason: {appt.rejectionReason}
+                      </p>
+                    )}
+                    {canAcceptSuggestion && (
+                      <div className="mt-3 rounded-lg border border-blue-100 bg-blue-50 p-3">
+                        <p className="text-sm font-medium text-blue-900">
+                          Dr. {doctorName} cancelled. Are you okay with Dr. {replacementDoctor.userId?.name}?
+                        </p>
+                        <p className="text-sm text-blue-700 mt-1">
+                          {replacementDoctor.specialization} on {format(new Date(suggestion.date || appt.date), 'dd MMM yyyy')} at {suggestion.time || appt.time}
+                        </p>
+                        <button
+                          onClick={() => setSuggestionTarget(appt._id)}
+                          className="btn-primary text-sm py-1.5 mt-3"
+                        >
+                          Yes, request this doctor
+                        </button>
+                      </div>
+                    )}
+                    {appt.status === 'rejected' && suggestion?.status === 'unavailable' && (
+                      <p className="mt-2 text-sm text-gray-600 bg-gray-50 rounded px-3 py-1.5">
+                        No alternate doctor is currently available for this same time.
                       </p>
                     )}
                   </div>
@@ -112,6 +150,15 @@ export default function MyAppointments() {
         loading={cancelMutation.isPending}
         onConfirm={() => cancelMutation.mutate(cancelTarget)}
         onCancel={() => setCancelTarget(null)}
+      />
+
+      <ConfirmModal
+        open={!!suggestionTarget}
+        title="Confirm replacement?"
+        message={`This will send a new appointment request to Dr. ${suggestedDoctor?.userId?.name || 'the suggested doctor'}.`}
+        loading={acceptSuggestionMutation.isPending}
+        onConfirm={() => acceptSuggestionMutation.mutate(suggestionTarget)}
+        onCancel={() => setSuggestionTarget(null)}
       />
     </div>
   );

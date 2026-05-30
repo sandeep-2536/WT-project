@@ -16,6 +16,32 @@ const registerValidation = [
   body('email').isEmail().withMessage('Valid email required').normalizeEmail(),
   body('password').isLength({ min: 8 }).withMessage('Password must be at least 8 characters'),
   body('role').optional().isIn(['patient', 'doctor', 'nurse']).withMessage('Invalid role'),
+  body('specialization')
+    .if(body('role').equals('doctor'))
+    .trim()
+    .notEmpty()
+    .withMessage('Specialization is required for doctors'),
+  body('experience')
+    .if(body('role').equals('doctor'))
+    .isInt({ min: 0 })
+    .withMessage('Experience must be 0 or more years')
+    .toInt(),
+  body('consultationFee')
+    .if(body('role').equals('doctor'))
+    .isFloat({ min: 0 })
+    .withMessage('Consultation fee must be 0 or more')
+    .toFloat(),
+  body('department')
+    .if(body('role').equals('nurse'))
+    .trim()
+    .notEmpty()
+    .withMessage('Department is required for nurses'),
+  body('maxLoad')
+    .if(body('role').equals('nurse'))
+    .isInt({ min: 1 })
+    .withMessage('Max load must be at least 1')
+    .toInt(),
+  body('qualifications').optional().isLength({ max: 300 }).withMessage('Qualifications cannot exceed 300 characters'),
 ];
 
 const loginValidation = [

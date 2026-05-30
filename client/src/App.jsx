@@ -27,6 +27,7 @@ import NurseSchedule from './pages/nurse/Schedule';
 import AdminLayout from './layouts/AdminLayout';
 import AdminDashboard from './pages/admin/Dashboard';
 import AdminUsers from './pages/admin/Users';
+import AdminNewUsers from './pages/admin/NewUsers';
 import AdminDoctors from './pages/admin/Doctors';
 import AdminNurses from './pages/admin/Nurses';
 import AdminAppointments from './pages/admin/Appointments';
@@ -72,6 +73,7 @@ export default function App() {
           <Route element={<RoleRoute allowedRoles={['admin']} />}>
             <Route path="/admin" element={<AdminLayout />}>
               <Route index element={<AdminDashboard />} />
+              <Route path="new-users" element={<AdminNewUsers />} />
               <Route path="users" element={<AdminUsers />} />
               <Route path="doctors" element={<AdminDoctors />} />
               <Route path="nurses" element={<AdminNurses />} />

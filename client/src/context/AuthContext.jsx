@@ -54,6 +54,8 @@ export const AuthProvider = ({ children }) => {
   const register = useCallback(async (payload) => {
     const { data } = await api.post('/auth/register', payload);
     const { user: u, accessToken: at, refreshToken: rt } = data.data;
+    if (!at || !rt) return u;
+
     setUser(u);
     setAccessToken(at);
     localStorage.setItem('refreshToken', rt);
