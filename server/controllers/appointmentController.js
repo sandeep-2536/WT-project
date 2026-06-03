@@ -71,7 +71,7 @@ const acceptSuggestion = async (req, res) => {
       req.params.id,
       req.user._id
     );
-    successResponse(res, { appointment }, 'Replacement appointment request submitted');
+    successResponse(res, { appointment }, 'Replacement appointment booked');
   } catch (err) {
     errorResponse(res, err.message, err.statusCode || 500);
   }
@@ -84,6 +84,21 @@ const getMyAppointments = async (req, res) => {
     const skip = (page - 1) * limit;
     const filter = { patientId: req.user._id };
     if (status) filter.status = status;
+
+    const staleRejectedAppointments = await Appointment.find({
+      patientId: req.user._id,
+      status: 'rejected',
+      $or: [
+        { replacementSuggestion: { $exists: false } },
+        { 'replacementSuggestion.status': 'unavailable' },
+      ],
+    }).select('_id');
+
+    await Promise.all(
+      staleRejectedAppointments.map((appointment) =>
+        appointmentService.refreshReplacementSuggestion(appointment._id, req.user._id)
+      )
+    );
 
     const [appointments, total] = await Promise.all([
       Appointment.find(filter)

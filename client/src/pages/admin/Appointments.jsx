@@ -1,12 +1,14 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { appointmentAPI } from '../../api/services';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { adminAPI, appointmentAPI } from '../../api/services';
 import { StatusBadge, Pagination, Spinner, EmptyState, PageHeader } from '../../components/ui';
 import { format } from 'date-fns';
+import toast from 'react-hot-toast';
 
 const STATUS_FILTERS = ['all', 'pending', 'confirmed', 'rejected', 'cancelled', 'completed'];
 
 export default function AdminAppointments() {
+  const qc = useQueryClient();
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState('all');
   const [dateFilter, setDateFilter] = useState('');
@@ -22,8 +24,27 @@ export default function AdminAppointments() {
     select: (res) => res.data,
   });
 
+  const { data: nurseData } = useQuery({
+    queryKey: ['admin-nurses-for-assignment'],
+    queryFn: () => adminAPI.nurses({ page: 1, limit: 100 }),
+    select: (res) => res.data,
+  });
+
+  const assignNurseMutation = useMutation({
+    mutationFn: ({ appointmentId, nurseId }) => adminAPI.assignNurse(appointmentId, nurseId),
+    onSuccess: () => {
+      toast.success('Nurse assigned');
+      qc.invalidateQueries({ queryKey: ['admin-appointments'] });
+      qc.invalidateQueries({ queryKey: ['admin-nurses'] });
+      qc.invalidateQueries({ queryKey: ['admin-nurses-for-assignment'] });
+    },
+    onError: (err) => toast.error(err.response?.data?.message || 'Failed to assign nurse'),
+  });
+
   const appointments = data?.data || [];
   const pagination = data?.pagination || {};
+  const nurses = nurseData?.data || [];
+  const activeNurses = nurses.filter((nurse) => nurse.userId?.isActive);
 
   return (
     <div>
@@ -48,14 +69,14 @@ export default function AdminAppointments() {
           onChange={(e) => { setDateFilter(e.target.value); setPage(1); }}
         />
         {dateFilter && (
-          <button onClick={() => setDateFilter('')} className="text-sm text-gray-400 hover:text-gray-700">✕</button>
+          <button onClick={() => setDateFilter('')} className="text-sm text-gray-400 hover:text-gray-700">x</button>
         )}
       </div>
 
       {isLoading ? (
         <Spinner />
       ) : appointments.length === 0 ? (
-        <EmptyState icon="📋" title="No appointments found" />
+        <EmptyState title="No appointments found" />
       ) : (
         <div className="card overflow-hidden">
           <table className="w-full text-sm">
@@ -76,14 +97,41 @@ export default function AdminAppointments() {
                     <p className="text-xs text-gray-400">{appt.patientId?.email}</p>
                   </td>
                   <td className="px-4 py-3">
-                    <p>Dr. {appt.doctorId?.userId?.name || '—'}</p>
+                    <p>Dr. {appt.doctorId?.userId?.name || '-'}</p>
                     <p className="text-xs text-gray-400">{appt.doctorId?.specialization}</p>
                   </td>
                   <td className="px-4 py-3 text-gray-500">
-                    {appt.nurseId?.userId?.name || <span className="text-gray-300">—</span>}
+                    {appt.status === 'confirmed' ? (
+                      <select
+                        className="input min-w-48 py-1.5 text-sm"
+                        value={appt.nurseId?._id || ''}
+                        disabled={assignNurseMutation.isPending || activeNurses.length === 0}
+                        onChange={(e) => {
+                          if (e.target.value) {
+                            assignNurseMutation.mutate({
+                              appointmentId: appt._id,
+                              nurseId: e.target.value,
+                            });
+                          }
+                        }}
+                      >
+                        <option value="">
+                          {activeNurses.length ? 'Assign nurse' : 'No active nurses'}
+                        </option>
+                        {activeNurses.map((nurse) => (
+                          <option key={nurse._id} value={nurse._id}>
+                            {nurse.userId?.name} ({nurse.currentLoad}/{nurse.maxLoad})
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span className="text-gray-300">
+                        {appt.status === 'pending' ? 'Awaiting doctor approval' : '-'}
+                      </span>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-gray-500">
-                    {format(new Date(appt.date), 'dd MMM yyyy')} · {appt.time}
+                    {format(new Date(appt.date), 'dd MMM yyyy')} - {appt.time}
                   </td>
                   <td className="px-4 py-3">
                     <StatusBadge status={appt.status} />

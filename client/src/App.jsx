@@ -3,6 +3,7 @@ import { AuthProvider } from './context/AuthContext';
 import { ProtectedRoute, RoleRoute, PublicRoute } from './routes/ProtectedRoute';
 
 // Auth pages
+import HomePage from './pages/HomePage';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 
@@ -37,6 +38,8 @@ export default function App() {
     <BrowserRouter>
       <AuthProvider>
         <Routes>
+          <Route path="/" element={<HomePage />} />
+
           {/* Public routes */}
           <Route element={<PublicRoute />}>
             <Route path="/login" element={<LoginPage />} />
@@ -82,8 +85,7 @@ export default function App() {
           </Route>
 
           {/* Fallback */}
-          <Route path="/" element={<Navigate to="/login" replace />} />
-          <Route path="*" element={<Navigate to="/login" replace />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </AuthProvider>
     </BrowserRouter>

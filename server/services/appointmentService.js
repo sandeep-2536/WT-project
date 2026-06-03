@@ -10,6 +10,7 @@ const notificationService = require('./notificationService');
 const { emitToUser } = require('./socketService');
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const GENERAL_SPECIALIZATION_REGEX = /\bgen(?:e)?ral\b/i;
 
 const getDocumentId = (value) => value?._id || value;
 const idsEqual = (left, right) => getDocumentId(left)?.toString() === getDocumentId(right)?.toString();
@@ -66,9 +67,11 @@ const findReplacementDoctor = async (appointment, rejectedDoctor) => {
     return null;
   };
 
-  return (
-    await findAvailable(new RegExp(`^${escapeRegex(rejectedDoctor.specialization)}$`, 'i'))
-  ) || await findAvailable(/general/i);
+  const sameSpecialization = rejectedDoctor.specialization
+    ? await findAvailable(new RegExp(`^${escapeRegex(rejectedDoctor.specialization.trim())}$`, 'i'))
+    : null;
+
+  return sameSpecialization || await findAvailable(GENERAL_SPECIALIZATION_REGEX);
 };
 
 /**
@@ -106,32 +109,6 @@ const getAlternateSlots = async (doctor, date, count = 5) => {
   }
 
   return slots;
-};
-
-/**
- * Auto-assign a nurse to an appointment based on availability and load.
- */
-const assignNurse = async (appointment) => {
-  const dayName = DAY_NAMES[new Date(appointment.date).getDay()];
-
-  // Find nurses available on that day with load below max
-  const nurses = await Nurse.find({
-    'availability.day': dayName,
-    'availability.isAvailable': true,
-  }).populate('userId', 'name');
-
-  // Filter by load capacity
-  const available = nurses.filter((n) => n.currentLoad < n.maxLoad);
-  if (!available.length) return null;
-
-  // Pick nurse with lowest current load
-  available.sort((a, b) => a.currentLoad - b.currentLoad);
-  const nurse = available[0];
-
-  // Update nurse load
-  await Nurse.findByIdAndUpdate(nurse._id, { $inc: { currentLoad: 1 } });
-
-  return nurse;
 };
 
 /**
@@ -199,34 +176,17 @@ const approveAppointment = async (appointmentId, doctorUserId) => {
     throw Object.assign(new Error(`Cannot approve appointment with status: ${appointment.status}`), { statusCode: 400 });
   }
 
-  // Auto-assign nurse
-  const nurse = await assignNurse(appointment);
-
   appointment.status = 'confirmed';
-  if (nurse) appointment.nurseId = nurse._id;
   await appointment.save();
 
   // Notify patient
   await notificationService.create({
     userId: appointment.patientId,
     title: 'Appointment confirmed',
-    message: `Your appointment on ${appointment.date.toDateString()} at ${appointment.time} has been confirmed.${nurse ? ` Nurse ${nurse.userId?.name} has been assigned.` : ''}`,
+    message: `Your appointment on ${appointment.date.toDateString()} at ${appointment.time} has been confirmed.`,
     type: 'appointment_confirmed',
     relatedAppointment: appointment._id,
   });
-
-  // Notify nurse if assigned
-  if (nurse) {
-    await notificationService.create({
-      userId: nurse.userId._id,
-      title: 'New appointment assigned',
-      message: `You have been assigned to an appointment on ${appointment.date.toDateString()} at ${appointment.time}`,
-      type: 'nurse_assigned',
-      relatedAppointment: appointment._id,
-    });
-
-    emitToUser(nurse.userId._id.toString(), 'nurse_assigned', { appointment });
-  }
 
   emitToUser(appointment.patientId.toString(), 'appointment_confirmed', { appointment });
 
@@ -281,6 +241,32 @@ const rejectAppointment = async (appointmentId, doctorUserId, reason) => {
   return appointment;
 };
 
+const refreshReplacementSuggestion = async (appointmentId, patientId = null) => {
+  const appointment = await Appointment.findById(appointmentId).populate({
+    path: 'doctorId',
+    populate: { path: 'userId', select: 'name isActive' },
+  });
+
+  if (!appointment || appointment.status !== 'rejected') return appointment;
+  if (patientId && !idsEqual(appointment.patientId, patientId)) {
+    throw Object.assign(new Error('Not authorised'), { statusCode: 403 });
+  }
+  if (appointment.replacementSuggestion?.status === 'accepted') return appointment;
+
+  const replacementDoctor = await findReplacementDoctor(appointment, appointment.doctorId);
+  appointment.replacementSuggestion = replacementDoctor
+    ? {
+        doctorId: replacementDoctor._id,
+        date: appointment.date,
+        time: appointment.time,
+        status: 'pending',
+      }
+    : { status: 'unavailable' };
+
+  await appointment.save();
+  return appointment;
+};
+
 const acceptReplacementSuggestion = async (appointmentId, patientId) => {
   const original = await Appointment.findById(appointmentId)
     .populate('replacementSuggestion.doctorId')
@@ -320,7 +306,7 @@ const acceptReplacementSuggestion = async (appointmentId, patientId) => {
     date,
     time,
     reason: original.reason,
-    status: 'pending',
+    status: 'confirmed',
     isRescheduled: true,
     originalAppointmentId: original._id,
   });
@@ -331,18 +317,73 @@ const acceptReplacementSuggestion = async (appointmentId, patientId) => {
   const populatedDoctor = await Doctor.findById(doctor._id).populate('userId', 'name');
   await notificationService.create({
     userId: populatedDoctor.userId._id,
-    title: 'Replacement appointment request',
-    message: `A patient accepted a replacement request for ${new Date(date).toDateString()} at ${time}`,
-    type: 'general',
+    title: 'Replacement appointment booked',
+    message: `A patient booked you as a replacement doctor for ${new Date(date).toDateString()} at ${time}`,
+    type: 'appointment_confirmed',
     relatedAppointment: appointment._id,
   });
 
   emitToUser(populatedDoctor.userId._id.toString(), 'new_appointment_request', {
     appointment,
-    message: 'Replacement appointment request received',
+    message: 'Replacement appointment booked',
   });
 
+  await notificationService.create({
+    userId: original.patientId,
+    title: 'Replacement appointment confirmed',
+    message: `Your replacement appointment with Dr. ${populatedDoctor.userId?.name || 'the suggested doctor'} on ${new Date(date).toDateString()} at ${time} has been booked.`,
+    type: 'appointment_confirmed',
+    relatedAppointment: appointment._id,
+  });
+
+  emitToUser(original.patientId.toString(), 'appointment_confirmed', { appointment });
+
   return appointment;
+};
+
+const assignNurseToAppointment = async (appointmentId, nurseId) => {
+  const appointment = await Appointment.findById(appointmentId);
+  if (!appointment) throw Object.assign(new Error('Appointment not found'), { statusCode: 404 });
+
+  if (appointment.status !== 'confirmed') {
+    throw Object.assign(new Error('Nurses can only be assigned after the doctor approves the appointment'), { statusCode: 400 });
+  }
+
+  const nurse = await Nurse.findById(nurseId).populate('userId', 'name isActive');
+  if (!nurse) throw Object.assign(new Error('Nurse not found'), { statusCode: 404 });
+  if (!nurse.userId?.isActive) {
+    throw Object.assign(new Error('Cannot assign an inactive nurse'), { statusCode: 400 });
+  }
+
+  if (idsEqual(appointment.nurseId, nurse._id)) {
+    return Appointment.findById(appointment._id)
+      .populate('patientId', 'name email')
+      .populate({ path: 'doctorId', populate: { path: 'userId', select: 'name' } })
+      .populate({ path: 'nurseId', populate: { path: 'userId', select: 'name email' } });
+  }
+
+  if (appointment.nurseId) {
+    await Nurse.findByIdAndUpdate(appointment.nurseId, { $inc: { currentLoad: -1 } });
+  }
+
+  appointment.nurseId = nurse._id;
+  await appointment.save();
+  await Nurse.findByIdAndUpdate(nurse._id, { $inc: { currentLoad: 1 } });
+
+  await notificationService.create({
+    userId: nurse.userId._id,
+    title: 'New appointment assigned',
+    message: `Admin assigned you to an appointment on ${appointment.date.toDateString()} at ${appointment.time}`,
+    type: 'nurse_assigned',
+    relatedAppointment: appointment._id,
+  });
+
+  emitToUser(nurse.userId._id.toString(), 'nurse_assigned', { appointment });
+
+  return Appointment.findById(appointment._id)
+    .populate('patientId', 'name email')
+    .populate({ path: 'doctorId', populate: { path: 'userId', select: 'name' } })
+    .populate({ path: 'nurseId', populate: { path: 'userId', select: 'name email' } });
 };
 
 /**
@@ -390,6 +431,8 @@ module.exports = {
   rejectAppointment,
   cancelAppointment,
   acceptReplacementSuggestion,
+  refreshReplacementSuggestion,
+  assignNurseToAppointment,
   getAlternateSlots,
   isSlotBooked,
 };

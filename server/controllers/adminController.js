@@ -2,6 +2,7 @@ const User = require('../models/User');
 const Doctor = require('../models/Doctor');
 const Nurse = require('../models/Nurse');
 const Appointment = require('../models/Appointment');
+const appointmentService = require('../services/appointmentService');
 const { successResponse, errorResponse, paginatedResponse } = require('../utils/response');
 
 const parseList = (value) => {
@@ -26,6 +27,75 @@ const getUsers = async (req, res) => {
       User.countDocuments(filter),
     ]);
     paginatedResponse(res, users, page, limit, total);
+  } catch (err) {
+    errorResponse(res, err.message, 500);
+  }
+};
+
+// POST /api/admin/users
+const createUser = async (req, res) => {
+  try {
+    const {
+      name,
+      email,
+      password,
+      role,
+      specialization,
+      department,
+      qualifications,
+      experience,
+      consultationFee,
+      maxLoad,
+    } = req.body;
+
+    if (!name || !email || !password || !role) {
+      return errorResponse(res, 'Name, email, password, and role are required', 400);
+    }
+    if (!['patient', 'doctor', 'nurse'].includes(role)) {
+      return errorResponse(res, 'Admin can create patient, doctor, or nurse users only', 400);
+    }
+    if (password.length < 8) {
+      return errorResponse(res, 'Password must be at least 8 characters', 400);
+    }
+    if (role === 'doctor' && !specialization) {
+      return errorResponse(res, 'Specialization is required for doctors', 400);
+    }
+    if (role === 'nurse' && !department) {
+      return errorResponse(res, 'Department is required for nurses', 400);
+    }
+
+    const existing = await User.findOne({ email });
+    if (existing) return errorResponse(res, 'Email already registered', 409);
+
+    const user = await User.create({
+      name,
+      email,
+      password,
+      role,
+      isActive: true,
+      approvalStatus: 'approved',
+    });
+
+    if (role === 'doctor') {
+      await Doctor.create({
+        userId: user._id,
+        specialization,
+        qualifications: parseList(qualifications),
+        experience: Number(experience) || 0,
+        consultationFee: Number(consultationFee) || 0,
+      });
+    }
+
+    if (role === 'nurse') {
+      await Nurse.create({
+        userId: user._id,
+        department,
+        qualifications: parseList(qualifications),
+        maxLoad: Number(maxLoad) || 8,
+      });
+    }
+
+    successResponse(res, { user }, `${role} user created`, 201);
   } catch (err) {
     errorResponse(res, err.message, 500);
   }
@@ -200,6 +270,19 @@ const getNurses = async (req, res) => {
   }
 };
 
+// PATCH /api/admin/appointments/:id/assign-nurse
+const assignNurseToAppointment = async (req, res) => {
+  try {
+    const { nurseId } = req.body;
+    if (!nurseId) return errorResponse(res, 'Nurse is required', 400);
+
+    const appointment = await appointmentService.assignNurseToAppointment(req.params.id, nurseId);
+    successResponse(res, { appointment }, 'Nurse assigned to appointment');
+  } catch (err) {
+    errorResponse(res, err.message, err.statusCode || 500);
+  }
+};
+
 // GET /api/admin/analytics
 const getAnalytics = async (req, res) => {
   try {
@@ -244,6 +327,7 @@ const getAnalytics = async (req, res) => {
 
 module.exports = {
   getUsers,
+  createUser,
   toggleUserStatus,
   getPendingUsers,
   approvePendingUser,
@@ -252,5 +336,6 @@ module.exports = {
   createDoctor,
   deleteDoctor,
   getNurses,
+  assignNurseToAppointment,
   getAnalytics,
 };

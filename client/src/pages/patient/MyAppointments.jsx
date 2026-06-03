@@ -38,7 +38,7 @@ export default function MyAppointments() {
   const acceptSuggestionMutation = useMutation({
     mutationFn: (id) => appointmentAPI.acceptSuggestion(id),
     onSuccess: () => {
-      toast.success('Replacement request submitted');
+      toast.success('Replacement appointment booked');
       qc.invalidateQueries({ queryKey: ['my-appointments'] });
       qc.invalidateQueries({ queryKey: ['patient-appointments'] });
       setSuggestionTarget(null);
@@ -114,7 +114,7 @@ export default function MyAppointments() {
                           onClick={() => setSuggestionTarget(appt._id)}
                           className="btn-primary text-sm py-1.5 mt-3"
                         >
-                          Yes, request this doctor
+                          Yes, book this doctor
                         </button>
                       </div>
                     )}
@@ -155,7 +155,7 @@ export default function MyAppointments() {
       <ConfirmModal
         open={!!suggestionTarget}
         title="Confirm replacement?"
-        message={`This will send a new appointment request to Dr. ${suggestedDoctor?.userId?.name || 'the suggested doctor'}.`}
+        message={`This will book Dr. ${suggestedDoctor?.userId?.name || 'the suggested doctor'} for the same time and reason.`}
         loading={acceptSuggestionMutation.isPending}
         onConfirm={() => acceptSuggestionMutation.mutate(suggestionTarget)}
         onCancel={() => setSuggestionTarget(null)}

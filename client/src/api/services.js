@@ -40,6 +40,7 @@ export const nurseAPI = {
 // Admin
 export const adminAPI = {
   users: (params) => api.get('/admin/users', { params }),
+  createUser: (data) => api.post('/admin/users', data),
   toggleUser: (id) => api.patch(`/admin/users/${id}/toggle`),
   pendingUsers: (params) => api.get('/admin/pending-users', { params }),
   approvePendingUser: (id) => api.patch(`/admin/pending-users/${id}/approve`),
@@ -48,6 +49,7 @@ export const adminAPI = {
   createDoctor: (data) => api.post('/admin/doctors', data),
   deleteDoctor: (id) => api.delete(`/admin/doctors/${id}`),
   nurses: (params) => api.get('/admin/nurses', { params }),
+  assignNurse: (appointmentId, nurseId) => api.patch(`/admin/appointments/${appointmentId}/assign-nurse`, { nurseId }),
   analytics: () => api.get('/admin/analytics'),
 };
 
